@@ -1,0 +1,14 @@
+{
+  "domain": "pihole_grp",
+  "name": "Pi-hole groups",
+  "config_flow": true,
+  "documentation": "https://www.home-assistant.io/integrations/pihole_grp",
+  "requirements": [],
+  "ssdp": [],
+  "zeroconf": [],
+  "homekit": {},
+  "dependencies": [],
+  "codeowners": [
+    "@kirbs-"
+  ]
+}

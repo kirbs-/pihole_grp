@@ -1,0 +1,21 @@
+restart_dns:
+  # Service name as shown in UI
+  name: Restart DNS service
+  # Description of the service
+  description: Restarts Pi-hole's DNS service.
+  # If the service accepts entity IDs, target allows the user to specify entities by entity, device, or area. If `target` is specified, `entity_id` should not be defined in the `fields` map. By default it shows only targets matching entities from the same domain as the service, but if further customization is required, target supports the entity, device, and area selectors (https://www.home-assistant.io/docs/blueprint/selectors/). Entity selector parameters will automatically be applied to device and area, and device selector parameters will automatically be applied to area. 
+  # target:
+  # Different fields that your service accepts
+  fields:
+    # Key of the field
+    restart_url:
+      # Field name as shown in UI
+      name: Restart URL
+      # Description of the field
+      description: Portainer restart URL
+      # Whether or not field is required
+      required: true
+    restart_auth:
+      name: Authorization token
+      description: Portainer auth token
+      required: false
