@@ -9,6 +9,8 @@ from sqlalchemy.orm import relationship, backref, sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 from .const import DOMAIN
 
+from aiohttp import ClientSession
+
 _LOGGER = logging.getLogger(__name__)
 # DOMAIN = 'pihole_group_mgmt'
 
@@ -41,9 +43,9 @@ async def async_setup_entry(hass, entry, async_add_entities):
         'restart_dns',
         {
             vol.Required('restart_url'): cv.string,
-            vol.Optional('restart_auth'): cv.string_with_no_html,
+            vol.Required('restart_auth'): cv.string,
         },
-        "async_restart",
+        "_async_restart",
     )
 
 
@@ -129,7 +131,8 @@ class Pihole:
     @staticmethod
     # async def restart_dns(**kwargs):
     #     _LOGGER.debug(kwargs)
-    def restart_dns():
+    def restart_dns(**kwargs):
+        _LOGGER.info(kwargs)
         # _LOGGER.info(data)
         # url = data.data.get('portainer_url')
         # auth = data.data.get('portainer_auth')
@@ -210,8 +213,31 @@ class PiholeDomainSwitch(SwitchEntity):
         """Turn off the service."""
         await self.async_disable()
 
+    async def _async_restart(self, **kwargs):
+        headers = {'Authorization': f'Bearer {Pihole.PORTAINER_AUTH}'}
+        body = {'Cmd': ['sudo', 'pihole', 'restartdns']}
+        exec_id = None
+        async with ClientSession() as session:
+            async with session.post(Pihole.PORTAINER_URL, json=body, headers=headers) as resp:
+                await resp.text()
+                # _LOGGER.info(resp.json())
+
+                _json = await resp.json()
+                _LOGGER.info(_json)
+                exec_id = _json['Id']
+
+            _url = f'http://brains.lan:9000/api/endpoints/1/docker/exec/{exec_id}/start'
+            body = {'Detach': True}
+
+            async with session.post(url=_url, headers=headers, json=body) as resp:
+                _LOGGER.info(await resp.text())
+            await session.close()
+
     async def async_restart(self, **kwargs):
-        await Pihole.restart_dns(Pihole.PORTAINER_URL, Pihole.PORTAINER_AUTH)
+        # url = 'http://brains.lan:9000/api/endpoints/1/docker/containers/3ef8aff0de5c217f8a96142f21f7e9b5e04877555aecc35bba9699edb446a941/exec'
+        # auth = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6MiwidXNlcm5hbWUiOiJoYXNzIiwicm9sZSI6MiwiZXhwIjoxNjQ5MTY2MzAxfQ.Ubm-jHm7blf4_EYrEM-DMaLRwok3dbxrOEyHeq0_ZFU'
+        # _LOGGER.info(kwargs)
+        await self.hass.async_add_executor_job(Pihole.restart_dns(**kwargs))
 
     async def async_disable(self, duration=None, **kwargs):
         """Disable the service for a given duration."""
@@ -219,7 +245,7 @@ class PiholeDomainSwitch(SwitchEntity):
         # if duration is not None:
         #     duration_seconds = duration.total_seconds()
         _LOGGER.info( "Disabling Pi-hole '%s'", self.name)
-        _LOGGER.info(str(kwargs))
+        # _LOGGER.info(str(kwargs))
         try:
             await Pihole.disable_domain(self.pihole_domain) #self.api.disable(duration_seconds)
             await self.hass.async_add_executor_job(Pihole.restart_dns)
