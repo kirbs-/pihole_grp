@@ -18,15 +18,19 @@ _LOGGER = logging.getLogger(__name__)
 async def async_setup_entry(hass, entry, async_add_entities):
     """Set up the Pi-hole binary sensor."""
     # name = entry.data[CONF_NAME]
-    _LOGGER.info(entry.as_dict())
+    # _LOGGER.info(entry.as_dict())
     # _data = hass.data[DOMAIN][entry.entry_id]
     Pihole.URL = entry.data['filename']
-    Pihole.PORTAINER_URL = entry.data['portainer_url']
-    Pihole.PORTAINER_AUTH = entry.data['portainer_auth']
+    # Pihole.PORTAINER_URL = entry.data['portainer_url']
+    # Pihole.PORTAINER_AUTH = entry.data['portainer_auth']
     # Pihole.URL = entry['data']['filename']
 
     for domain in Pihole.list_domains():
         async_add_entities([PiholeDomainSwitch(domain)], True)
+
+    for group in Pihole.list_groups():
+        async_add_entities([PiholeGroupSwitch(group)], True)
+
     # switch = [
     #     PiholeDomainSwitch(
     #         hole_data[DATA_KEY_API],
@@ -43,7 +47,7 @@ async def async_setup_entry(hass, entry, async_add_entities):
         'restart_dns',
         {
             vol.Required('restart_url'): cv.string,
-            vol.Required('restart_auth'): cv.string,
+            vol.Optional('restart_auth'): cv.string,
         },
         "_async_restart",
     )
@@ -79,14 +83,10 @@ class Group(Base):
     
 class Pihole:
 
-    # def __init__(self, db_filename):
-    #     self.db_filename = db_filename
-
     CONN_ARGS = {'check_same_thread': False}
     URL = ''
     PORTAINER_URL = None
     PORTAINER_AUTH = None
-    # URL = 'sqlite:////Users/ckirby/git/pihole-group-mgmt/pihole/gravity.db'
 
     @staticmethod
     def list_domains():
@@ -96,6 +96,15 @@ class Pihole:
         domains = session.query(DomainList).all()
 
         return [domain.domain for domain in domains]
+
+    @staticmethod
+    def list_groups():
+        engine = create_engine(Pihole.URL, connect_args=Pihole.CONN_ARGS)
+        Session = sessionmaker(bind=engine)
+        session = Session()
+        groups = session.query(Group).all()
+
+        return [group.name for group in groups]
 
     @staticmethod
     async def disable_domain(url):
@@ -116,6 +125,24 @@ class Pihole:
         return session.commit()
 
     @staticmethod
+    async def disable_group(group):
+        engine = create_engine(Pihole.URL, connect_args=Pihole.CONN_ARGS)
+        Session = sessionmaker(bind=engine)
+        session = Session()
+        domain = session.query(Group).filter(Group.name == group).one()
+        domain.enabled = False
+        return session.commit()
+
+    @staticmethod
+    async def enable_group(group):
+        engine = create_engine(Pihole.URL, connect_args=Pihole.CONN_ARGS)
+        Session = sessionmaker(bind=engine)
+        session = Session()
+        domain = session.query(Group).filter(Group.name == group).one()
+        domain.enabled = True
+        return session.commit()
+
+    @staticmethod
     def domain_status(url):
         engine = create_engine(Pihole.URL, connect_args=Pihole.CONN_ARGS)
         Session = sessionmaker(bind=engine)
@@ -124,29 +151,17 @@ class Pihole:
         return domain.enabled
 
     @staticmethod
+    def group_status(group):
+        engine = create_engine(Pihole.URL, connect_args=Pihole.CONN_ARGS)
+        Session = sessionmaker(bind=engine)
+        session = Session()
+        domain = session.query(Group).filter(Group.name == group).first()
+        return domain.enabled
+
+    @staticmethod
     async def restart_container(url, auth):
         headers = {'Authorization': f'Bearer {auth}'}
         requests.post(url, headers=headers)
-
-    @staticmethod
-    # async def restart_dns(**kwargs):
-    #     _LOGGER.debug(kwargs)
-    def restart_dns(**kwargs):
-        _LOGGER.info(kwargs)
-        # _LOGGER.info(data)
-        # url = data.data.get('portainer_url')
-        # auth = data.data.get('portainer_auth')
-        headers = {'Authorization': f'Bearer {Pihole.PORTAINER_AUTH}'}
-        body = {'Cmd': ['sudo', 'pihole', 'restartdns']}
-        res = requests.post(Pihole.PORTAINER_URL, headers=headers, json=body)
-        # _LOGGER.info(f'auth: {Pihole.PORTAINER_AUTH}')
-        # _LOGGER.info(f"Headers: {headers}")
-        # _LOGGER.info(f'URL: {Pihole.PORTAINER_URL}')
-        # _LOGGER.info(f"portainer response: {res.text}")
-        exec_id = res.json()['Id']
-        _url = f'http://brains.lan:9000/api/endpoints/1/docker/exec/{exec_id}/start'
-        body = {'Detach': True}
-        requests.post(_url, headers=headers, json=body)
 
 
 # Import the device class from the component that you want to support
@@ -166,7 +181,6 @@ class PiholeDomainSwitch(SwitchEntity):
     def __init__(self, domain):
         self.pihole_domain = domain
         self._name = domain
-
 
     @property
     def device_info(self):
@@ -200,12 +214,8 @@ class PiholeDomainSwitch(SwitchEntity):
     async def async_turn_on(self, **kwargs):
         """Turn on the service."""
         _LOGGER.info('Turning domain on.')
-        # _LOGGER.info(self)
-        # _LOGGER.info(str(kwargs))
         try:
             await Pihole.enable_domain(self.pihole_domain) 
-            await self.hass.async_add_executor_job(Pihole.restart_dns)
-            # await self.async_update()
         except Exception as err:
             _LOGGER.error("Unable to enable Pi-hole: %s", err)
 
@@ -214,14 +224,15 @@ class PiholeDomainSwitch(SwitchEntity):
         await self.async_disable()
 
     async def _async_restart(self, **kwargs):
-        headers = {'Authorization': f'Bearer {Pihole.PORTAINER_AUTH}'}
+        # _LOGGER.info(kwargs)
+        _LOGGER.info("Restarting Pi-hole DNS service.")
+        headers = {'Authorization': f'Bearer {kwargs.get("restart_auth")}'}
         body = {'Cmd': ['sudo', 'pihole', 'restartdns']}
         exec_id = None
-        async with ClientSession() as session:
-            async with session.post(Pihole.PORTAINER_URL, json=body, headers=headers) as resp:
-                await resp.text()
-                # _LOGGER.info(resp.json())
 
+        async with ClientSession() as session:
+            async with session.post(kwargs.get('restart_url'), json=body, headers=headers) as resp:
+                await resp.text()
                 _json = await resp.json()
                 _LOGGER.info(_json)
                 exec_id = _json['Id']
@@ -234,53 +245,96 @@ class PiholeDomainSwitch(SwitchEntity):
             await session.close()
 
     async def async_restart(self, **kwargs):
-        # url = 'http://brains.lan:9000/api/endpoints/1/docker/containers/3ef8aff0de5c217f8a96142f21f7e9b5e04877555aecc35bba9699edb446a941/exec'
-        # auth = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6MiwidXNlcm5hbWUiOiJoYXNzIiwicm9sZSI6MiwiZXhwIjoxNjQ5MTY2MzAxfQ.Ubm-jHm7blf4_EYrEM-DMaLRwok3dbxrOEyHeq0_ZFU'
-        # _LOGGER.info(kwargs)
         await self.hass.async_add_executor_job(Pihole.restart_dns(**kwargs))
 
-    async def async_disable(self, duration=None, **kwargs):
+    async def async_disable(self, **kwargs):
         """Disable the service for a given duration."""
-        # duration_seconds = True  # Disable infinitely by default
-        # if duration is not None:
-        #     duration_seconds = duration.total_seconds()
         _LOGGER.info( "Disabling Pi-hole '%s'", self.name)
-        # _LOGGER.info(str(kwargs))
         try:
             await Pihole.disable_domain(self.pihole_domain) #self.api.disable(duration_seconds)
-            await self.hass.async_add_executor_job(Pihole.restart_dns)
+            # await self.hass.async_add_executor_job(Pihole.restart_dns)
             # await self.async_update()
         except Exception as err:
             _LOGGER.error("Unable to disable Pi-hole: %s", err)
 
-# from homeassistant.helpers.entity import Entity
 
+class PiholeGroupSwitch(SwitchEntity):
 
-# def setup_platform(hass, config, add_entities, discovery_info=None):
-#     """Set up the sensor platform."""
-#     for domain in Pihole.list_domains():
-#         add_entities([PiholeDomainSwitch(domain)])
+    def __init__(self, domain):
+        self.pihole_domain = domain
+        self._name = domain
 
+    @property
+    def device_info(self):
+        """Return the device information of the entity."""
+        return {
+            "identifiers": {(DOMAIN, self.pihole_domain)},
+            "name": self.pihole_domain,
+            "manufacturer": "Pi-hole",
+        }
 
-# def setup(hass, config):
-# # async def async_setup(hass, config):
-#     setup_platform(hass, config)
+    @property
+    def name(self):
+        """Return the name of the switch."""
+        return self._name
 
-#     return True
+    @property
+    def unique_id(self):
+        """Return the unique id of the switch."""
+        return f"{self.pihole_domain}/Switch"
 
-# from sqlalchemy import create_engine
-# engine = create_engine('sqlite:///pihole/gravity.db')
+    @property
+    def icon(self):
+        """Icon to use in the frontend, if any."""
+        return "mdi:pi-hole"
 
-# from sqlalchemy.orm import sessionmaker
-# Session = sessionmaker(bind=engine)
-# session = Session()
+    @property
+    def is_on(self):
+        """Return if the service is on."""
+        return Pihole.group_status(self.pihole_domain) #self.api.data.get("status") == "enabled"
 
-# domains = session.query(DomainList).all()
+    async def async_turn_on(self, **kwargs):
+        """Turn on the service."""
+        _LOGGER.info('Turning group on.')
+        try:
+            await Pihole.enable_group(self.pihole_domain) 
+        except Exception as err:
+            _LOGGER.error("Unable to enable Pi-hole: %s", err)
 
-# for domain in domains:
-#     # domain.enabled = False
-#     print(domain.domain)
+    async def async_turn_off(self, **kwargs):
+        """Turn off the service."""
+        await self.async_disable()
 
-# session.commit()
+    async def _async_restart(self, **kwargs):
+        # _LOGGER.info(kwargs)
+        _LOGGER.info("Restarting Pi-hole DNS service.")
+        headers = {'Authorization': f'Bearer {kwargs.get("restart_auth")}'}
+        body = {'Cmd': ['sudo', 'pihole', 'restartdns']}
+        exec_id = None
 
-# print(Pihole.domain_status('google.com'))
+        async with ClientSession() as session:
+            async with session.post(kwargs.get('restart_url'), json=body, headers=headers) as resp:
+                await resp.text()
+                _json = await resp.json()
+                _LOGGER.info(_json)
+                exec_id = _json['Id']
+
+            _url = f'http://brains.lan:9000/api/endpoints/1/docker/exec/{exec_id}/start'
+            body = {'Detach': True}
+
+            async with session.post(url=_url, headers=headers, json=body) as resp:
+                _LOGGER.info(await resp.text())
+            await session.close()
+
+    async def async_restart(self, **kwargs):
+        await self.hass.async_add_executor_job(Pihole.restart_dns(**kwargs))
+
+    async def async_disable(self, **kwargs):
+        """Disable the service for a given duration."""
+        _LOGGER.info( "Disabling Pi-hole '%s'", self.name)
+        try:
+            await Pihole.disable_group(self.pihole_domain) #self.api.disable(duration_seconds)
+            # await self.hass.async_add_executor_job(Pihole.restart_dns)
+            # await self.async_update()
+        except Exception as err:
+            _LOGGER.error("Unable to disable Pi-hole: %s", err)

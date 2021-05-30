@@ -16,7 +16,7 @@ _LOGGER = logging.getLogger(__name__)
 
 # TODO adjust the data schema to the data that you need
 # STEP_USER_DATA_SCHEMA = vol.Schema({"filename": str, "restart_url": str, "restart_token": str})
-STEP_USER_DATA_SCHEMA = vol.Schema({"filename": str, "portainer_url": str, "portainer_auth": str})
+STEP_USER_DATA_SCHEMA = vol.Schema({"filename": str}) #, "portainer_url": str, "portainer_auth": str})
 
 
 class PlaceholderHub:

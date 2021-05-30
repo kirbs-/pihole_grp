@@ -4,9 +4,7 @@
     "step": {
       "user": {
         "data": {
-          "filename": "[%key:common::config_flow::data::filename%]",
-          "portainer_url": "[%key:common::config_flow::data::portainer_url%]",
-          "portainer_auth": "[%key:common::config_flow::data::portainer_auth%]"
+          "filename": "[%key:common::config_flow::data::filename%]"
         }
       }
     },
